@@ -1,6 +1,7 @@
 import json
 import operator
 import pickle
+import random
 import unittest
 from datetime import datetime
 from src.message_handler import MessageHandler
@@ -330,6 +331,26 @@ class TestMessageHandler(unittest.TestCase):
 
         expected = [self.message]
         actual = self.sender2.waiting_messages
+
+        self.assertEqual(expected, actual)
+
+    def test_append_message_timestamp_key(self) -> None:
+        self.sender2.append_message(**self.message)
+
+        expected = ["timestamps", "client_sent"]
+        actual = self.sender2.timestamp_key
+
+        self.assertEqual(expected, actual)
+
+    def test_append_message_sorting_by_date(self) -> None:
+        expected = [msg["timestamps"]["client_sent"] for msg in self.message_list]
+
+        self.sender2.waiting_messages = []
+        input_list = random.sample(self.message_list, len(self.message_list))
+        for msg in input_list:
+            self.sender2.append_message(**msg)
+
+        actual = [msg["timestamps"]["client_sent"] for msg in self.sender2.waiting_messages]
 
         self.assertEqual(expected, actual)
 
