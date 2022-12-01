@@ -17,6 +17,10 @@ class MessageHandler:
         # The list will store all messages
         self.waiting_messages = []
 
+        # key to the field by which messages will be sorted, will be initialized as soon as the first message will be
+        # added to the list
+        self.timestamp_key = None
+
         # The schema class can be referenced throughout the class using self.Schema
         self.Schema = message_schema
 
@@ -52,13 +56,26 @@ class MessageHandler:
 
     def append_message(self, **kwargs) -> None:
         try:
+
             # get dictionary that was given via **kwargs if it matches the schema
             message = self.Schema(**kwargs).dict()
+
         except ValidationError as err:
+
             raise err
+
         else:
+
             # append the message to the list of waiting messages
             self.waiting_messages.append(message)
+
+            # initialize timestamp_key if there is none
+            if self.timestamp_key is None:
+                # the [0] at the end = we want only the first list of keys (multiple are being returned)
+                self.timestamp_key = SortByDate.find_datetime_value_key(self.waiting_messages[0])[0]
+
+            # sort messages by date
+            self.waiting_messages = SortByDate.sort_by_date(self.waiting_messages, *self.timestamp_key)
 
     def __is_in_schema(
             self,
@@ -260,127 +277,6 @@ class MessageHandler:
                         indices += [(i, j) for j in sub_indices]
                     else:
                         indices.append((i, None))
-
-
-        # # initiate lists for messages that meet all conditions and their indices
-        # indices: list[tuple[int, int | None]] = []
-        # messages_found: list[dict] = []
-        # passing: list[list[bool]] = [[] * len(self.waiting_messages)]
-        #
-        # # iterate over all conditions
-        # for key, val in _cond.items():
-        #
-        #     field_name_path = [fname for fname in key.split('.') if fname != '']
-        #
-        #     # check if requested fields exist in schema and if their value has an appropriate type
-        #     self.__is_in_schema(
-        #         fields=field_name_path,
-        #         schema_class=self.Schema,
-        #         check_if_modifiable=False,
-        #         value=val
-        #     )
-        #
-        #     for i, message in enumerate(self.waiting_messages):
-        #
-        #         if len(field_name_path) == 2:
-        #
-        #             # if the field is mutable iterable type (list, set) and there is a name of a subfield specified we
-        #             # expect embedding
-        #             if isinstance(message[field_name_path[0]], (list, set)) and len(field_name_path) == 2:
-        #
-        #                 # if yes, iterate over all its elements
-        #                 for j, elem in enumerate(message[at]):
-        #
-        #                     # if the field meets the condition add 'True' to the passing list, else False
-        #                     passing[i].append(elem[field_name_path[1]] == val)
-        #
-        #                     # append index regardless it's meeting the condition or not
-        #                     indices.append((i, j))
-        #
-        #             else:
-        #
-        #                 # it is embedded field within dict-like object
-        #                 passing[i].append(message[field_name_path[0]][field_name_path[1]] == val)
-        #
-        #         elif len(field_name_path) == 1:
-        #
-        #             # just a 'normal' field
-        #             passing[i].append(message[field_name_path[0]] == val)
-        #
-        #         else:
-        #             # if someone specifies another level of embedding, like 'some_field.some_other_field_field' - no
-        #             # support for that at the moment
-        #             raise ValueError(f"Cannot convert given string {key} into a valid path to the field.")
-        #
-        # else:
-        #     # after the main loop is done combine flags for each message (and change the type hint)
-        #     passing: list[bool] = list(map(lambda f: all(f), passing))
-        #     # based on the passing flags extract messages and their indices that have corresponding True value
-        # # iterate over all conditions
-        # for key, val in conditions.items():
-        #
-        #     # check if requested fields exist in schema and if the schema structure supports the one presumed from
-        #     # given 'at' and conditions; check if the value has an appropriate type
-        #     self.__is_in_schema(
-        #         fields=([at] if at else []) + [key],
-        #         schema_class=self.Schema,
-        #         check_if_modifiable=False,
-        #         value=val
-        #     )
-        #
-        # # iterate over all messages
-        # for i, message in enumerate(self.waiting_messages):
-        #
-        #     # if 'at' specified conditions given correspond to embedded field
-        #     if at is not None:
-        #
-        #         # if the field is mutable iterable type (list, set)?
-        #         if isinstance(message[at], (list, set)):
-        #
-        #             # if yes, iterate over all its elements
-        #             for j, elem in enumerate(message[at]):
-        #
-        #                 # validate over given conditions
-        #                 _ind, _msg = self.__validate_message(
-        #                     message,
-        #                     (i, j),
-        #                     **conditions,
-        #                     to_validate=elem
-        #                 )
-        #
-        #                 # if validation fails the __validate_message method return empty lists which when
-        #                 # added to the indices or messages_found do not change anything
-        #                 indices += _ind
-        #                 messages_found += _msg
-        #
-        #         else:
-        #
-        #             # else, it's probably dict-like
-        #             # chance is that someone (me) will put message_condition in OrderedDict or in kwargs - check both
-        #             # and if any duplicates happened, remove
-        #             _ind, _msg = self.__validate_message(message, (i, None), **conditions, to_validate=message[at])
-        #
-        #             indices += _ind
-        #             messages_found += _msg
-        #
-        #     else:
-        #
-        #         # no embedding, access directly and validate
-        #         # chance is that someone (me) will put (end) conditions in message_conditions - check both and if any
-        #         # duplicates happened, remove
-        #         if conditions:
-        #             _ind, _msg = self.__validate_message(
-        #                 message,
-        #                 (i, None),
-        #                 **conditions
-        #             )
-        #         else:
-        #             # if no input specified then return all messages
-        #             return [(i, None) for i in range(len(self.waiting_messages))], self.waiting_messages
-        #
-        #         indices += _ind
-        #         messages_found += _msg
-        #
 
         # remove duplicate messages (by message_id) and access points
         indices = list(set(indices))
@@ -743,15 +639,36 @@ class MessageHandler:
 # TODO: Need to implement the SortByDate class
 class SortByDate:
     @staticmethod
-    def find_datetime_value_key(_dict: dict) -> Optional[list[str]]:
+    def find_datetime_value_key(_dict: dict) -> list[list[str]] | None:
         key_list = []
-        for key in _dict.keys():
-            if type(_dict[key]) in [datetime, date, time]:
-                key_list.append(key)
+
+        for key, val in _dict.items():
+
+            if isinstance(val, (datetime, date, time)):
+
+                key_list.append([key])
+
+            else:
+
+                # noinspection PyBroadException
+                try:
+
+                    # assume the field has embedded dict-like entry
+                    for sub_key, sub_val in val.items():
+
+                        if isinstance(sub_val, (datetime, date, time)):
+
+                            key_list.append([key, sub_key])
+
+                except Exception:
+
+                    # if it's not dict-like skip to the next iteration
+                    continue
+
         return key_list
 
     @staticmethod
-    def sort_by_date(_list: list[dict], key: str) -> list:
+    def sort_by_date(_list: list[dict], *keys) -> list:
         """
         Sort list of dictionaries by one of the values. Input can be:
             _list = [
@@ -759,19 +676,30 @@ class SortByDate:
                 {"timestamp": 2019-10-28},
                 {"timestamp": 2020-02-11}
             ]
-            key = "timestamp"
+            keys = ["timestamp"]
         Or:
             _list = [
                 {"number": 5},
                 {"number": 16},
                 {"number": 2}
             ]
-            key = "number"
+            keys = ["number"]
+        Or:
+            _list = [
+                {"foo": {"timestamp": 2019-12-20}},
+                {"foo": {"timestamp": 2019-10-28}},
+                {"foo": {"timestamp": 2020-02-11}}
+            ]
+            keys = ["foo", "timestamp"]
         :param _list: list of dictionaries with datetime values (or other types that can be used with sorted())
-        :param key: key of the field ^
+        :param keys: key of the field ^ (or two keys if the field is embedded)
         :return: sorted list
         """
-        return sorted(_list, key=lambda x: x[key])
+        # All elements of the keys list must be strings
+        if not all([isinstance(key, str) for key in keys]):
+            raise TypeError(f"Input keys ({keys}) has incorrect type.")
+
+        return sorted(_list, key=lambda x: x[keys[0]] if len(keys) == 1 else x[keys[0]][keys[1]])
 
 
 if __name__ == "__main__":
