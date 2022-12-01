@@ -1,3 +1,4 @@
+import pickle
 import unittest
 from pathlib import Path
 from src.server import Server
@@ -6,33 +7,67 @@ from datetime import datetime
 import psutil
 import socket
 import pprint as pp
+from src.schema import get_message_id
 
 
 class TestServer(unittest.TestCase):
+    """
+    Protocol:
+        1. Server listens
+        2. Client connects and sends passcode
+        3. Is passcode correct?
+            a. Yes, save client to approved connections, send success message and request username
+            b. No, send access denied message
+        4. Client sends username (only safe characters - client-side validation)
+        5. Is the username correct? (is it unique?)
+            a. Yes, save
+    """
+
     def setUp(self) -> None:
         self.server = Server()
         self.passcode = self.server.get_passcode()
 
     def test_handle_clients_new_connection_correct_passcode_clients_list(self) -> None:
-        expected = [("127.0.0.1", 5050)]
         self.server.handle_clients(client_response_code='p', user_message=self.passcode, addr=("127.0.0.1", 5050))
+
+        expected = [{"client_name": "", "client_address": ("127.0.0.1", 5050)}]
         actual = self.server.approved_connections
+
         self.assertEqual(expected, actual)
 
     def test_handle_clients_new_connection_correct_passcode_messages_list(self) -> None:
+        client_addr = ("127.0.0.1", 5050)
+        get_message_id(None, {"created_at": datetime.now()})
+
+        created_at = self.server.handle_clients(
+            client_response_code='p',
+            user_message=self.passcode,
+            addr=client_addr,
+            __debug=True
+        )
+
         expected = [
             {
-                "header": None,
-                "timestamps": {
-                    "message_created": None,
-                    "server_sent": None,
-                    "client_received": None
+                "header": len("GRANTED".encode('utf-8')),
+                "created_at": created_at,
+                "message": "GRANTED",
+                "broadcasted": {
+                    "client_name": pickle.dumps(client_addr),
+                    "client_connected": True,
+                    "message_sent_at": None,
+                    "message_received_at": None
                 },
-                "message": None,
-                "client_address": None,
+                "message_id": get_message_id(
+                    None,
+                    {
+                        "created_at": created_at,
+                        "broadcasted": {
+                            "client_name": pickle.dumps(client_addr)
+                        }
+                    }
+                )
             }
         ]
-        self.server.handle_clients(client_response_code='p', user_message=self.passcode, addr=("127.0.0.1", 5050))
         actual = self.server.server_messages.waiting_messages
         self.assertEqual(expected, actual)
 
