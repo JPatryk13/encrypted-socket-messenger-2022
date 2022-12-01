@@ -1,6 +1,8 @@
 from pydantic import BaseModel, validator, Extra, Field
+from pydantic.utils import lenient_issubclass, lenient_isinstance
 from datetime import datetime
 from typing import Tuple, TypeVar, Any
+import pickle
 
 
 AddrType = TypeVar('AddrType', bound=Tuple[str, int])
@@ -36,15 +38,58 @@ def is_addr_type(var: Any) -> bool:
 
                     return True
 
+    # is it a serialized tuple?
+    elif isinstance(var, bytes):
+        # it is bytes type, try to convert it to python object
+        try:
+
+            # try to convert it to python object
+            addr = pickle.loads(v)
+
+        except Exception as err:
+
+            return False
+
+        else:
+
+            # it is python object, rerun the test
+            return is_addr_type(addr)
+
     return False
 
 
-def get_message_id(message_id: str, values: dict) -> str:
+def get_timestamp_value(values: dict) -> datetime:
+    # filter in only datetime type values
+    datetime_type_values = list(filter(lambda x: isinstance(x, datetime), list(values.values())))
+
+    if datetime_type_values:
+        # if there are any datetime type values, select the first one
+        return datetime_type_values[0]
+    else:
+        # if there are none, check embedded fields
+
+        # filter in only child classes of BaseModel or dicts (embedded fields)
+        embedded_fields = list(filter(lambda v: lenient_isinstance(v, (BaseModel, dict)), list(values.values())))
+
+        # convert any BaseModel class to dict, leave out embedded fields that are dictionaries already
+        embedded_fields = list(map(lambda d: d.dict() if lenient_isinstance(d, BaseModel) else d, embedded_fields))
+
+        if embedded_fields:
+
+            # rerun the method with embedded dictionary
+            return get_timestamp_value(embedded_fields[0])
+
+        else:
+
+            raise Exception("No datetime field found.")
+
+
+def get_message_id(message_id: str | None, values: dict) -> str:
     # generate message id from the first-found timestamp and sender ip address
-    if not message_id:
+    if message_id is None:
 
         # get values of the time and sender ip
-        timestamp: datetime = list(values['timestamps'].dict().values())[0]
+        timestamp = get_timestamp_value(values)
         _ip: str = list(filter(is_addr_type, values.values()))[0][0]
 
         # combine timestamp with client IP address to form most likely unique ID. Assumption: client cannot send two
@@ -58,10 +103,26 @@ def get_message_id(message_id: str, values: dict) -> str:
 
 
 class UserStatus(BaseModel):
-    client_name: str
+    client_name: str | bytes
     client_connected: bool = Field(description="MODIFIABLE")
     message_sent_at: datetime | None = Field(None, description="MODIFIABLE")
     message_received_at: datetime | None = Field(None, description="MODIFIABLE")
+
+    @validator('client_name')
+    def must_be_ipv4(cls, v) -> str | bytes:
+        if isinstance(v, str):
+            # if it's a string (actual client_name) don't do anything
+            return v
+        else:
+
+            # it is bytes type, run is_addr_type()
+            if is_addr_type(v):
+                return v
+            else:
+                raise ValueError("Given tuple does not meet AddrType requirements. "
+                                 "Check schema definition for more details.")
+
+
 
     class Config:
         extra = Extra.forbid
@@ -105,37 +166,20 @@ class MessageSchema(BaseModel):
         extra = Extra.forbid
 
 
-class OneWayTimestamp(BaseModel):
-    message_created: datetime = Field(default_factory=lambda: datetime.now())
-
-    class Config:
-        extra = Extra.forbid
-
-
 class ServerClientCommunicationSchema(BaseModel):
     header: int
-    timestamps: OneWayTimestamp
+    created_at: datetime = Field(default_factory=lambda: datetime.now())
     message: str
-    client_address: AddrType
     broadcasted: list[UserStatus] = Field(description="MODIFIABLE")
     message_id: str | None = None
 
-    @validator('client_address')
-    def must_be_ipv4(cls, v) -> AddrType:
-        if is_addr_type(v):
-            return v
-        else:
-            raise ValueError("Given tuple does not meet AddrType requirements. "
-                             "Check schema definition for more details.")
-
     class Config:
         extra = Extra.forbid
 
 
-registered_classes = (UserStatus, Timestamp, MessageSchema, OneWayTimestamp, ServerClientCommunicationSchema)
-
-
 if __name__ == "__main__":
+    registered_classes = (UserStatus, Timestamp, MessageSchema, ServerClientCommunicationSchema)
+
     for cls in registered_classes:
         import pprint as pp
 
@@ -143,3 +187,4 @@ if __name__ == "__main__":
         for k, v in cls.__fields__.items():
             pp.pprint(f"{k}: {v}")#, description={v.field_info.description}")
         print('\n')
+
