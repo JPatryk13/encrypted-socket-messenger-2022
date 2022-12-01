@@ -13,12 +13,13 @@ import operator
 
 
 class MessageHandler:
-    def __init__(self, message_schema: Type[BaseModel]):
+    def __init__(self, message_schema: Type[BaseModel], sort_messages_by_date: bool = False):
         # The list will store all messages
         self.waiting_messages = []
 
         # key to the field by which messages will be sorted, will be initialized as soon as the first message will be
         # added to the list
+        self.sort_messages_by_date = sort_messages_by_date
         self.timestamp_key = None
 
         # The schema class can be referenced throughout the class using self.Schema
@@ -69,13 +70,14 @@ class MessageHandler:
             # append the message to the list of waiting messages
             self.waiting_messages.append(message)
 
-            # initialize timestamp_key if there is none
-            if self.timestamp_key is None:
-                # the [0] at the end = we want only the first list of keys (multiple are being returned)
-                self.timestamp_key = SortByDate.find_datetime_value_key(self.waiting_messages[0])[0]
+            if self.sort_messages_by_date:
+                # initialize timestamp_key if there is none
+                if self.timestamp_key is None:
+                    # the [0] at the end = we want only the first list of keys (multiple are being returned)
+                    self.timestamp_key = SortByDate.find_datetime_value_key(self.waiting_messages[0])[0]
 
-            # sort messages by date
-            self.waiting_messages = SortByDate.sort_by_date(self.waiting_messages, *self.timestamp_key)
+                # sort messages by date
+                self.waiting_messages = SortByDate.sort_by_date(self.waiting_messages, *self.timestamp_key)
 
     def __is_in_schema(
             self,
@@ -636,7 +638,6 @@ class MessageHandler:
                 raise Exception(f"Cannot find an action for given query {_query}")
 
 
-# TODO: Need to implement the SortByDate class
 class SortByDate:
     @staticmethod
     def find_datetime_value_key(_dict: dict) -> list[list[str]] | None:
