@@ -41,7 +41,7 @@ class MessageHandler:
                 return schema_dict[get_only]
             except KeyError:
                 raise KeyError(self.key_err_msg(get_only))
-        # return and maybe print the schema if get_only not specified
+        # return the schema if get_only not specified
         else:
             if schema_as == 'json':
                 return schema_json
@@ -75,6 +75,7 @@ class MessageHandler:
         :param check_if_modifiable:
         :return:
         """
+
         key_list = [k for k, v in schema_class.__fields__.items() if not check_if_modifiable or v.field_info.description == "MODIFIABLE"]
 
         # Only certain fields are considered to be modifiable (description='MODIFIABLE'). Check if the given key
@@ -188,9 +189,6 @@ class MessageHandler:
             # dictionary
             _cond = {k if at is None else f"{at}.{k}": v for k, v in conditions.items()}
 
-        # that works like **conditions previously - passed as kwargs to __validate_message
-        _cond_endings = {k.split('.')[-1]: v for k, v in _cond.items()}
-
         # initiate lists for messages that meet all conditions and their indices
         indices: list[tuple[int, int | None]] = []
         messages_found: list[dict] = []
@@ -198,8 +196,20 @@ class MessageHandler:
         # iterate over all messages
         for i, message in enumerate(self.waiting_messages):
 
+            # count the number of times the message met the condition, then compare with number of conditions
+            passing = 0
+            sub_indices = []
+
             # iterate over conditions
             for key, val in _cond.items():
+
+                # if the input _cond was of the form {'field.path': '...', 'some_field': '...', ...} the convert each
+                # value to tuple; i.e. {'field.path': (operator.eq, '...'), 'some_field': (operator.eq, '...'), ...}.
+                # Default operator function operator.eq
+                if not isinstance(val, tuple):
+                    val = (operator.eq, val)
+
+                func, val = val
 
                 # break down the key into names of fields
                 field_path = [fname for fname in key.split('.') if fname != '']
@@ -209,19 +219,14 @@ class MessageHandler:
                     fields=field_path,
                     schema_class=self.Schema,
                     check_if_modifiable=False,
-                    value=val[1] if isinstance(val, tuple) else val
+                    value=val
                 )
 
                 if len(field_path) == 1:
                     # it is 'normal' field without embedding
 
-                    # validate over given conditions
-                    _ind, _msg = self.__validate_message(message, (i, None), **_cond_endings)
-
-                    # if validation fails the __validate_message method return empty lists which when
-                    # added to the indices or messages_found do not change anything
-                    indices += _ind
-                    messages_found += _msg
+                    if func(message[field_path[0]], val):
+                        passing += 1
 
                 elif len(field_path) == 2:
                     # field with embedding - iterable (list/set) or dict-like
@@ -231,24 +236,31 @@ class MessageHandler:
 
                         for j, elem in enumerate(message[field_path[0]]):
 
-                            # do the same for each element of the iterable
-                            _ind, _msg = self.__validate_message(message, (i, j), **_cond_endings, to_validate=elem)
-
-                            indices += _ind
-                            messages_found += _msg
+                            if func(message[field_path[0]][j][field_path[1]], val):
+                                passing += 1
+                                sub_indices.append(j)
 
                     else:
                         # it is dict-like
-                        print(field_path[0])
-                        _ind, _msg = self.__validate_message(message, (i, None), **_cond_endings, to_validate=message[field_path[0]])
 
-                        indices += _ind
-                        messages_found += _msg
+                        if func(message[field_path[0]][field_path[1]], val):
+                            passing += 1
 
                 else:
                     # if someone specifies another level of embedding, like 'some_field.some_other_field_field' - no
                     # support for that at the moment
                     raise ValueError(f"Cannot convert given string {key} into a valid path to the field.")
+
+            else:
+                # after each for-loop iterating over conditions check 'passing' and 'sub_indices' and assess whether to
+                # add the message and indices to the list or not
+                if passing == len(_cond):
+                    messages_found.append(message)
+                    if sub_indices:
+                        indices += [(i, j) for j in sub_indices]
+                    else:
+                        indices.append((i, None))
+
 
         # # initiate lists for messages that meet all conditions and their indices
         # indices: list[tuple[int, int | None]] = []
@@ -399,7 +411,6 @@ class MessageHandler:
         :return:
         """
 
-
         # check if the given field_name corresponds to a modifiable field in the schema and if the value is ok type
         self.__is_in_schema(
             fields=([at] if at else []) + [field_name],
@@ -535,7 +546,7 @@ class MessageHandler:
 
             return _cond
 
-    def __update_multiple(self, query_items: list[str], *values, _cond: dict[str, tuple[Callable, Any | None]] | None = None):
+    def __update_multiple(self, query_items: list[str], values: list, _cond: dict[str, tuple[Callable, Any | None]] | None = None):
         indices = None
 
         # update each field given separately
@@ -666,14 +677,14 @@ class MessageHandler:
                 # use update_messages(...)
 
                 # no conditions, all args are fields to be updated
-                self.__update_multiple(query_items[2:], *update_val)
+                self.__update_multiple(query_items[2:], update_val)
 
             elif "UPDATE " in _query and " WHERE " in _query:
                 # use update_messages(...)
 
                 _cond = self.__str_to_cond_dict(query_items[query_items.index("WHERE") + 1:], *where_val)
 
-                self.__update_multiple(query_items[1:query_items.index("WHERE")], *update_val, _cond)
+                self.__update_multiple(query_items[1:query_items.index("WHERE")], update_val, _cond=_cond)
 
             elif "DELETE WHERE " in _query:
 

@@ -565,7 +565,7 @@ class TestMessageHandler(unittest.TestCase):
     def test_query_update_messages_no_message(self) -> None:
         self.sender2.waiting_messages = []
 
-        self.sender2.query("UPDATE broadcasted.client_name={} WHERE client_name=={}", update_val=[True], where_val=["Mike"])
+        self.sender2.query("UPDATE broadcasted.client_connected={} WHERE client_name=={}", update_val=[True], where_val=["Mike"])
 
         expected = []
         actual = self.sender2.waiting_messages
@@ -626,12 +626,13 @@ class TestMessageHandler(unittest.TestCase):
 
         self.assertEqual(expected, actual)
 
+    @unittest.skip("OR operator currently not supported")
     def test_query_get_messages_explicit_or(self) -> None:
         expected = [msg for msg in self.message_list
                     if msg["client_address"] == (f"127.0.0.1", 5050)
                     or msg["timestamps"]["client_sent"] >= datetime(2022, 11, 1, 22, 20, 4)]
 
-        actual = self.sender2.query("GET WHERE client_address=={} OR timestamps.client_sent>={}", (f"127.0.0.1", 5050), datetime(2022, 11, 1, 22, 20, 4))
+        actual = self.sender2.query("GET WHERE client_address=={} OR timestamps.client_sent>={}", where_val=[(f"127.0.0.1", 5050), datetime(2022, 11, 1, 22, 20, 4)])
 
         self.assertEqual(expected, actual)
 
@@ -682,13 +683,13 @@ class TestMessageHandler(unittest.TestCase):
         self.assertEqual(expected, actual)
 
     def test_query_not_allowed_characters_numbers(self) -> None:
-        self.assertRaises(ValueError, self.sender2.query, _query="GET WHERE var0=={}", args=["str"])
+        self.assertRaises(ValueError, self.sender2.query, _query="GET WHERE var0=={}", where_val=["str"])
 
     def test_query_not_allowed_characters_punctuation(self) -> None:
-        self.assertRaises(ValueError, self.sender2.query, _query="GET WHERE var:s=={}", args=["str"])
+        self.assertRaises(ValueError, self.sender2.query, _query="GET WHERE var:s=={}", where_val=["str"])
 
     def test_query_not_allowed_characters_symbols(self) -> None:
-        self.assertRaises(ValueError, self.sender2.query, _query="GET WHERE var&s=={}", args=["str"])
+        self.assertRaises(ValueError, self.sender2.query, _query="GET WHERE var&s=={}", where_val=["str"])
 
     def test_query_not_allowed_method(self) -> None:
         self.assertRaises(ValueError, self.sender2.query, _query="PRINT ALL")
@@ -709,10 +710,6 @@ class TestMessageHandler(unittest.TestCase):
 
     def test_query_improper_query(self) -> None:
         self.assertRaises(Exception, self.sender2.query, _query="WHERE DELETE message_id=={}", args=["bar"])
-
-    def test(self) -> None:
-        self.sender2.query("GET WHERE client_name=={}, broadcasted.client_name=={}", "John", "Mike")
-        self.sender2.query("GET WHERE broadcasted.client_name=={}", "John")
 
 
 if __name__ == "__main__":
