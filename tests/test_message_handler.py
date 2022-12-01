@@ -335,6 +335,7 @@ class TestMessageHandler(unittest.TestCase):
         self.assertEqual(expected, actual)
 
     def test_append_message_timestamp_key(self) -> None:
+        self.sender2.sort_messages_by_date = True
         self.sender2.append_message(**self.message)
 
         expected = ["timestamps", "client_sent"]
@@ -346,6 +347,8 @@ class TestMessageHandler(unittest.TestCase):
         expected = [msg["timestamps"]["client_sent"] for msg in self.message_list]
 
         self.sender2.waiting_messages = []
+        self.sender2.sort_messages_by_date = True
+
         input_list = random.sample(self.message_list, len(self.message_list))
         for msg in input_list:
             self.sender2.append_message(**msg)
@@ -356,6 +359,7 @@ class TestMessageHandler(unittest.TestCase):
 
     def test_append_message_message_schema_no_id(self) -> None:
         self.sender2.waiting_messages = []
+        self.sender2.sort_messages_by_date = True
 
         expected = self.message["message_id"]
 

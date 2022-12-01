@@ -55,13 +55,17 @@ class Server:
     #  handle_incoming_messages  can call  receive_message, handle_clients, handle_missing_message
 
     def get_passcode(self) -> str:
+        """
+        Return generated passcode to the console - user then can copy it and give it to whomever he wants to message
+        with.
+        :return:
+        """
         return self.passcode
 
     def handle_clients(
             self,
-            client_response_code: Literal[ClientResponseCodes.USERNAME_GIVEN, ClientResponseCodes.PASSCODE_GIVEN],
-            *, remove_disconnected: bool = False,
-            **kwargs
+            *, client_response_code: Literal[ClientResponseCodes.USERNAME_GIVEN, ClientResponseCodes.PASSCODE_GIVEN],
+            remove_disconnected: bool = False,
     ) -> None:
         """
         Handle users that are joining the chat room. Validate passcodes and if correct, add clients to the list of
