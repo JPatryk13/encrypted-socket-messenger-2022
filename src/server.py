@@ -1,39 +1,22 @@
 import codecs
-
+import pickle
+from datetime import datetime
 from dotenv import load_dotenv
 from typing import Literal
 from enum import Enum
 from secrets import token_hex
 from nacl.public import PrivateKey, SealedBox
-
-
-class ClientResponseCodes(Enum):
-    REGULAR_TEXT_MESSAGE = 'm'
-    MESSAGE_RECEIVED_RESPONSE = 'r'
-    EVERYTHING_OK = 'k'
-    MISSING_MESSAGE = 'x'
-    USERNAME_GIVEN = 'u'
-    PASSCODE_GIVEN = 'p'
-
-
-class ServerEventTypes(Enum):
-    STARTING = "STARTING"
-    STARTED = "STARTED"
-    LISTENING = "LISTENING"
-    ATTEMPTED_CONNECTION = "ATTEMPTED_CONNECTION"
-    NEW_CLIENT = "NEW_CLIENT"
-    ACTIVE_CLIENTS = "ACTIVE_CLIENTS"
-    CLIENT_DISCONNECTED = "CLIENT_DISCONNECTED"
-    MESSAGE_RECEIVED = "MESSAGE_RECEIVED"
-    MESSAGE_DISPATCHED = "MESSAGE_DISPATCHED"
-    MESSAGED_DELIVERED = "MESSAGED_DELIVERED"
-    MISSING_MESSAGE = "MISSING_MESSAGE"
-    SHUTTING_DOWN = "SHUTTING_DOWN"
+from shared_enum_vars import ClientResponseTypes, ServerEventTypes
+from message_handler import MessageHandler
+from schema import MessageSchema, ServerClientCommunicationSchema
 
 
 class Server:
     def __init__(self):
-        pass
+        self.approved_connections = []
+        self.passcode = ""
+        self.server_messages = MessageHandler(ServerClientCommunicationSchema)
+        self.client_messages = MessageHandler(MessageSchema)
 
     # TODO:
     #  1. set up server
@@ -64,9 +47,16 @@ class Server:
 
     def handle_clients(
             self,
-            *, client_response_code: Literal[ClientResponseCodes.USERNAME_GIVEN, ClientResponseCodes.PASSCODE_GIVEN],
-            remove_disconnected: bool = False,
-    ) -> None:
+            *, client_response_code: Literal[
+                ClientResponseTypes.USERNAME_GIVEN,
+                ClientResponseTypes.PASSCODE_GIVEN,
+                ClientResponseTypes.CLIENT_DISCONNECTED
+            ],
+            client_message: str | None,
+            addr: tuple[str, int],
+            remove_disconnected_from_messages: bool = False,
+            __debug: bool = False
+    ) -> datetime:
         """
         Handle users that are joining the chat room. Validate passcodes and if correct, add clients to the list of
         connected clients or remove if their dropped out. Record appropriate messages in the message pool - these are to
@@ -140,8 +130,6 @@ if __name__ == "__main__":
     server_private_key = PrivateKey.generate()
     server_public_key = server_private_key.public_key
 
-    print(server_public_key.__bytes__().decode('utf-8'))  # UnicodeDecodeError
-
     #      CLIENT      #
 
     client_private_key = PrivateKey.generate()
@@ -159,4 +147,7 @@ if __name__ == "__main__":
     server_box = SealedBox(server_private_key)
     msg = server_box.decrypt(encrypted_message)
 
-    # print(msg.decode('utf-8'))
+    flag = False
+    flag_m = pickle.dumps(flag)
+    if not pickle.loads(flag_m):
+        print(flag_m)
