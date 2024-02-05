@@ -1,8 +1,9 @@
-from pydantic import BaseModel, validator, Extra, Field
+from pydantic import BaseModel, validator, Extra, Field, root_validator
 from pydantic.utils import lenient_issubclass, lenient_isinstance
 from datetime import datetime
 from typing import Tuple, TypeVar, Any
 import pickle
+from src.shared_enum_vars import ServerResponseTypes
 
 
 AddrType = TypeVar('AddrType', bound=Tuple[str, int])
@@ -44,7 +45,7 @@ def is_addr_type(var: Any) -> bool:
         try:
 
             # try to convert it to python object
-            addr = pickle.loads(v)
+            addr = pickle.loads(var)
 
         except Exception as err:
 
@@ -90,26 +91,26 @@ def get_message_id(message_id: str | None, values: dict) -> str:
 
         # get values of the time and sender ip
         timestamp = get_timestamp_value(values)
-        _ip: str = list(filter(is_addr_type, values.values()))[0][0]
+        addr: str = list(filter(is_addr_type, values.values()))[0]
 
         # combine timestamp with client IP address to form most likely unique ID. Assumption: client cannot send two
         # messages at the same time.
         timestamp_str = timestamp.strftime("%Y%m%d%H%M%S%f")
-        _ip_str = "".join(list(map(lambda x: x.zfill(3), _ip.split('.'))))
+        _ip_str = "".join(list(map(lambda x: x.zfill(3), addr[0].split('.'))))
 
-        return timestamp_str + _ip_str
+        return timestamp_str + _ip_str + str(addr[1]).zfill(6)
     else:
         return message_id
 
 
 class UserStatus(BaseModel):
     client_name: str | bytes
-    client_connected: bool = Field(description="MODIFIABLE")
+    # client_connected: bool = Field(description="MODIFIABLE")
     message_sent_at: datetime | None = Field(None, description="MODIFIABLE")
     message_received_at: datetime | None = Field(None, description="MODIFIABLE")
 
     @validator('client_name')
-    def must_be_ipv4(cls, v) -> str | bytes:
+    def must_be_ipv4_or_str(cls, v) -> str | bytes:
         if isinstance(v, str):
             # if it's a string (actual client_name) don't do anything
             return v
@@ -121,8 +122,6 @@ class UserStatus(BaseModel):
             else:
                 raise ValueError("Given tuple does not meet AddrType requirements. "
                                  "Check schema definition for more details.")
-
-
 
     class Config:
         extra = Extra.forbid
@@ -167,11 +166,34 @@ class MessageSchema(BaseModel):
 
 
 class ServerClientCommunicationSchema(BaseModel):
-    header: int
+    response_type: ServerResponseTypes
+
+    # When response type is CLIENT_CONNECTED.value or CLIENT_DISCONNECTED.value the info should be provided to inform
+    # other clients about the one who joined/left
+    info: str | None
     created_at: datetime = Field(default_factory=lambda: datetime.now())
-    message: str
     broadcasted: list[UserStatus] = Field(description="MODIFIABLE")
+    server_addr: AddrType
     message_id: str | None = None
+
+    @validator('server_addr')
+    def validate_server_addr(cls, v):
+        if is_addr_type(v):
+            return v
+        else:
+            raise ValueError("Given tuple does not meet AddrType requirements. "
+                             "Check schema definition for more details.")
+
+    @root_validator
+    def get_message_id_from_server_addr(cls, values):
+        values["message_id"] = get_message_id(
+            None,
+            {
+                "created_at": values["created_at"],
+                "server_addr": values["server_addr"]
+            }
+        )
+        return values
 
     class Config:
         extra = Extra.forbid

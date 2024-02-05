@@ -76,7 +76,6 @@ class TestMessageHandler(unittest.TestCase):
             "broadcasted": [
                 {
                     "client_name": "Mike",
-                    "client_connected": False,
                     "message_sent_at": None,
                     "message_received_at": None
                 }
@@ -100,7 +99,6 @@ class TestMessageHandler(unittest.TestCase):
                 "broadcasted": [
                     {
                         "client_name": self.client_list[i % 2],
-                        "client_connected": False,
                         "message_sent_at": None,
                         "message_received_at": None
                     }
@@ -122,7 +120,7 @@ class TestMessageHandler(unittest.TestCase):
         dotenv_path = Path(__file__).parent.parent.resolve() / ".env"
         load_dotenv(dotenv_path=dotenv_path)
         self.FORMAT = os.getenv('FORMAT')
-        self.HEADER_LENGTH = int(os.getenv('HEADER_LENGTH'))
+        self.MESSAGE_LENGTH_HEADER_LENGTH = int(os.getenv('MESSAGE_LENGTH_HEADER_LENGTH'))
 
     def tearDown(self) -> None:
         self.server.close()
@@ -298,7 +296,7 @@ class TestMessageHandler(unittest.TestCase):
 
         print("started threading")
 
-        msg_length = int(conn.recv(self.HEADER_LENGTH).decode(self.FORMAT))
+        msg_length = int(conn.recv(self.MESSAGE_LENGTH_HEADER_LENGTH).decode(self.FORMAT))
 
         print(msg_length)
 
@@ -417,20 +415,20 @@ class TestMessageHandler(unittest.TestCase):
             self.assertTrue(expected_err_msg in str(context.exception))
 
     def test_get_not_broadcasted_messages_no_messages(self) -> None:
+        self.sender2.waiting_messages = []
         actual = self.sender2.get_not_broadcasted_messages(recipient_name="John")
         self.assertEqual([], actual)
 
     def test_get_not_broadcasted_messages_no_recipients(self) -> None:
         self.message.update(broadcasted=[])
-        self.sender2.waiting_messages.append(self.message)
+        self.sender2.waiting_messages = [self.message]
 
         actual = self.sender2.get_not_broadcasted_messages(recipient_name="John")
 
         self.assertEqual([], actual)
 
     def test_get_not_broadcasted_messages_user_disconnected(self) -> None:
-        self.message["broadcasted"][0].update(user_connected=False)
-        self.sender2.waiting_messages.append(self.message)
+        self.sender2.waiting_messages = [self.message]
 
         actual = self.sender2.get_not_broadcasted_messages(recipient_name="John")
 
@@ -451,8 +449,6 @@ class TestMessageHandler(unittest.TestCase):
         self.assertEqual(expected, actual)
 
     def test_get_not_broadcasted_messages_multiple_messages_found(self) -> None:
-        for i, _ in enumerate(self.message_list):
-            self.message_list[i]["broadcasted"][0].update(client_connected=True)
         self.sender2.waiting_messages = self.message_list
 
         actual = len(self.sender2.get_not_broadcasted_messages(recipient_name="John"))
@@ -506,9 +502,11 @@ class TestMessageHandler(unittest.TestCase):
     def test_update_messages_no_message(self) -> None:
         self.sender2.waiting_messages = []
 
+        self.sender2.update_messages(field_name="message_sent_at", value=datetime.now(), at="broadcasted", client_name="Mike")
+
         expected = []
-        self.sender2.update_messages(field_name="client_connected", value=True, at="broadcasted", client_name="Mike")
         actual = self.sender2.waiting_messages
+
         self.assertEqual(expected, actual)
 
     @unittest.skip("The function passes the test. Requires 'message' field to be 'MODIFIABLE' in schema.")
@@ -523,17 +521,19 @@ class TestMessageHandler(unittest.TestCase):
 
     def test_update_messages_embedded_field(self) -> None:
         self.sender2.waiting_messages = self.message_list
-        self.sender2.update_messages(field_name="client_connected", value=True, at="broadcasted", client_name=self.message_list[0]["broadcasted"][0]["client_name"])
+        message_sent_at = datetime.now()
+        self.sender2.update_messages(field_name="message_sent_at", value=message_sent_at, at="broadcasted", client_name=self.message_list[0]["broadcasted"][0]["client_name"])
 
-        actual = self.sender2.waiting_messages[0]["broadcasted"][0]["client_connected"]
+        expected = message_sent_at
+        actual = self.sender2.waiting_messages[0]["broadcasted"][0]["message_sent_at"]
 
-        self.assertTrue(actual)
+        self.assertEqual(expected, actual)
 
     def test_update_messages_err_field_not_modifiable(self) -> None:
         self.assertRaises(Exception, self.sender2.update_messages, field_name="message_id", value="foo")
 
     def test_update_messages_err_wrong_value_type(self) -> None:
-        self.assertRaises(ValueError, self.sender2.update_messages, field_name="client_connected", value="True", at="broadcasted")
+        self.assertRaises(ValueError, self.sender2.update_messages, field_name="message_sent_at", value="True", at="broadcasted")
 
     def test_query_get_messages_no_messages(self) -> None:
         self.sender2.waiting_messages = []
@@ -590,7 +590,7 @@ class TestMessageHandler(unittest.TestCase):
     def test_query_update_messages_no_message(self) -> None:
         self.sender2.waiting_messages = []
 
-        self.sender2.query("UPDATE broadcasted.client_connected={} WHERE client_name=={}", update_val=[True], where_val=["Mike"])
+        self.sender2.query("UPDATE broadcasted.message_sent_at={} WHERE client_name=={}", update_val=[datetime(1998, 2, 2)], where_val=["Mike"])
 
         expected = []
         actual = self.sender2.waiting_messages
@@ -600,17 +600,20 @@ class TestMessageHandler(unittest.TestCase):
     def test_query_update_messages_embedded_field(self) -> None:
         self.sender2.waiting_messages = self.message_list
 
-        self.sender2.query("UPDATE broadcasted.client_connected={} WHERE broadcasted.client_name=={}", update_val=[True], where_val=[self.message_list[0]["broadcasted"][0]["client_name"]])
+        message_sent_at = datetime.now()
 
-        actual = self.sender2.waiting_messages[0]["broadcasted"][0]["client_connected"]
+        self.sender2.query("UPDATE broadcasted.message_sent_at={} WHERE broadcasted.client_name=={}", update_val=[message_sent_at], where_val=[self.message_list[0]["broadcasted"][0]["client_name"]])
 
-        self.assertTrue(actual)
+        expected = message_sent_at
+        actual = self.sender2.waiting_messages[0]["broadcasted"][0]["message_sent_at"]
+
+        self.assertEqual(expected, actual)
 
     def test_query_update_messages_err_field_not_modifiable(self) -> None:
         self.assertRaises(Exception, self.sender2.query, _query="UPDATE ALL message_id={}", update_val=["foo"])
 
     def test_query_update_messages_err_wrong_value_type(self) -> None:
-        self.assertRaises(ValueError, self.sender2.query, _query="UPDATE ALL broadcasted.client_connected={}", update_val=["str"])
+        self.assertRaises(ValueError, self.sender2.query, _query="UPDATE ALL broadcasted.message_sent_at={}", update_val=["str"])
 
     def test_query_get_messages_by_date_greater_than(self) -> None:
 
@@ -675,19 +678,6 @@ class TestMessageHandler(unittest.TestCase):
 
         expected = [msg for msg in self.message_list if msg["broadcasted"][0]["client_name"] != "John"]
         actual = self.sender2.waiting_messages
-
-        self.assertEqual(expected, actual)
-
-    def test_query_delete_in_broadcasted_where_client_connected(self) -> None:
-
-        # set client_connected=True
-        self.sender2.waiting_messages[0]["broadcasted"][0]["client_connected"] = True
-
-        # remove the client from broadcasted list
-        self.sender2.query("DELETE IN(broadcasted) WHERE broadcasted.client_connected=={}", where_val=[True])
-
-        expected = []
-        actual = self.sender2.waiting_messages[0]["broadcasted"]
 
         self.assertEqual(expected, actual)
 

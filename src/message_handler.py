@@ -6,14 +6,14 @@ from dotenv import load_dotenv
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
 from pydantic.utils import lenient_issubclass, lenient_isinstance
-from .schema import MessageSchema
+from src.schema import MessageSchema
 import re
 from collections.abc import Callable
 import operator
 
 
 class MessageHandler:
-    def __init__(self, message_schema: Type[BaseModel], sort_messages_by_date: bool = False):
+    def __init__(self, message_schema: Type[BaseModel], *, sort_messages_by_date: bool = False):
         # The list will store all messages
         self.waiting_messages = []
 
@@ -35,7 +35,7 @@ class MessageHandler:
         dotenv_path = Path(__file__).parent.parent.resolve() / ".env"
         load_dotenv(dotenv_path=dotenv_path)
         self.FORMAT = os.getenv('FORMAT')
-        self.HEADER_LENGTH = int(os.getenv('HEADER_LENGTH'))
+        self.MESSAGE_LENGTH_HEADER_LENGTH = int(os.getenv('MESSAGE_LENGTH_HEADER_LENGTH'))
 
     def get_schema(self, *, schema_as: str = 'dict', get_only: str | None = None) -> Any:
         schema_json = self.Schema.schema_json(indent=3)
@@ -233,6 +233,8 @@ class MessageHandler:
                 # break down the key into names of fields
                 field_path = [fname for fname in key.split('.') if fname != '']
 
+                # print(f"field_path @ get_messages = {field_path}")
+
                 # check if requested fields exist in schema and if their value has an appropriate type
                 self.__is_in_schema(
                     fields=field_path,
@@ -326,6 +328,9 @@ class MessageHandler:
         else:
             access_points = indices
 
+        # print(f"access_points = {access_points}")
+        # print(f"at = {at}")
+
         # modify the messages according to three possible cases
         for i, j in access_points:
 
@@ -359,7 +364,6 @@ class MessageHandler:
         _, messages = self.get_messages(
             at="broadcasted",
             client_name=recipient_name,
-            client_connected=True,
             message_sent_at=None
         )
 
@@ -453,6 +457,12 @@ class MessageHandler:
 
             parent_field_name = field.split('.')[0] if len(field.split('.')) == 2 else None
             child_field_name = field.split('.')[1] if len(field.split('.')) == 2 else field.split('.')[0]
+
+            # print(f"parent_field_name = {parent_field_name}")
+            # print(f"child_field_name = {child_field_name}")
+            # print(f"query_items = {query_items}")
+            # print(f"values = {values}")
+            # print(f"_cond = {_cond}")
 
             indices = self.update_messages(
                 at=parent_field_name,
